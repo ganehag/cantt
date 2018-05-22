@@ -6,13 +6,13 @@ MCP2515 hardware.
 
 ## Usage
 
-See the (usage.ino)[examples/usage/usage.ino] file in the 
-(examples/usage)[examples/usage] directory.
+See the [usage.ino](examples/usage/usage.ino) file in the 
+[examples/usage](examples/usage) directory.
 
 
 ## License
 
-(BSD 3-Clause License)(LICENSE]
+[BSD 3-Clause License](LICENSE)
 
 ## Simple Example
 
