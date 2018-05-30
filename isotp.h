@@ -70,16 +70,26 @@ back to 0 and so on. Is is used as a very basic way to ensure that each frame is
 #include <mcp_can.h>
 #include <mcp_can_dfs.h>
 
-#define ISOTP_SINGLE_FRAME 0
-#define ISOTP_FIRST_FRAME 1
-#define ISOTP_CONSECUTIVE_FRAME 2
-#define ISOTP_FLOWCTRL_FRAME 3
+// #define ISOTP_SINGLE_FRAME 0
+// #define ISOTP_FIRST_FRAME 1
+// #define ISOTP_CONSECUTIVE_FRAME 2
+// #define ISOTP_FLOWCTRL_FRAME 3
+
+#define ISOTP_EXTENDED_MASK 0x80000000
+#define ISOTP_EXTENDED_INVMASK 0x7fffffff
+#define ISOTP_RTR_MASK 0x40000000
+#define ISOTP_RTR_INVMASK 0xbfffffff
+#define ISOTP_ADDR_UNMASK 0x3fffffff
+
+#define IS_EXTENDED(rxId) ((rxId & 0x80000000) == 0x80000000)
+#define IS_RTR(rxId) ((rxId & 0x40000000) == 0x40000000)
+
 #define ISOTP_MAX_DATASIZE 4095
 
 #define ISOTP_MAX_ADDR 0x7FF
 
 #ifndef ISOTP_MAX_RECV_BUFFER
-#define ISOTP_MAX_RECV_BUFFER 256
+#define ISOTP_MAX_RECV_BUFFER 64
 #endif
 
 #define ISOTP_SINGLE_SIZE_MASK 0x0F  // 00001111
@@ -91,22 +101,69 @@ back to 0 and so on. Is is used as a very basic way to ensure that each frame is
 #define ISOTP_FLOW_WAIT 1
 #define ISOTP_FLOW_ABORT 2
 
-#define ISOTP_MACHINE_TIMEOUT 100
+#define ISOTP_DEFAULT_WAIT_TIME 20
+
+// Timeout must be more than consecutive frame delay (max 127)
+#define ISOTP_MACHINE_TIMEOUT 200 
+
+#define ISOTP_INVALID_ADDR 0xFFFF
+
+#define CAN_MAX_DATA_SIZE 8
 
 
 #define FRAME_TYPE(x) (x >> 4)
 
+/*
+
+ẗypedef struct s_ISOTPMessage {
+  uint32_t address; // Address / Priority (CAN bus specific)
+  uint16_t length; // Expected length of message
+  // uint8_t delay; // Delay between frames
+  // uint8_t ffinterval; // Flow frame interval
+  
+  uint16_t buflen; // Length of the received data
+  uint8_t buf[ISOTP_MAX_RECV_BUFFER]; // Buffer for the received data
+
+  uint32_t timeout_timer; // Keep track of last frame timestamp
+} ISOTPMessage;
+*/
+
+struct CANMessage {
+   uint32_t id;
+   bool     extended; // Not used currently
+   bool     rtr;  // not used currently
+   uint8_t  len;
+   uint8_t  data[8];
+};
+
+struct ISOTPTransmission {
+  uint32_t address;
+  struct CANMessage can;
+  uint16_t size;
+  uint16_t message_pos;
+  uint8_t message[ISOTP_MAX_RECV_BUFFER];
+  uint16_t frameCounter;
+};
+
+enum isotpframe {
+  ISOTP_SINGLE_FRAME = 0,
+  ISOTP_FIRST_FRAME = 1,
+  ISOTP_CONSECUTIVE_FRAME = 2,
+  ISOTP_FLOWCTRL_FRAME = 3
+};
+
 enum state_m {
   DISABLED = -1,
   IDLE = 0,
-  BUSY = 1,
+  CHECKREAD = 1,
   READ = 2,
   PARSE_WHICH = 3,
   SEND_FLOW = 4,
   SEND_SINGLE = 5,
   SEND_FIRST = 6,
   SEND_CONSECUTIVE = 7,
-  RECV_FLOW = 8
+  RECV_FLOW = 8,
+  CHECK_COLLISION = 9  
 };
 
 class IsoTp {
@@ -114,15 +171,18 @@ public:
   /**
    * Constructor
    */
-  IsoTp(MCP_CAN* bus, uint8_t mcp_int, void (*callback)(long unsigned int, uint8_t*, unsigned int));
+  IsoTp(MCP_CAN* bus, uint8_t mcp_int, uint32_t canAddr, void (*callback)(long unsigned int, uint8_t*, unsigned int));
+  IsoTp(MCP_CAN* bus, uint8_t mcp_int, uint32_t canAddr, uint32_t timeout, void (*callback)(long unsigned int, uint8_t*, unsigned int));
 
   void begin();
   void loop();
-  int send(long unsigned int, uint8_t*, unsigned int);
+  int send(uint8_t *payload, uint16_t length);
+  int send(uint32_t addr, uint8_t* payload, uint16_t length);
 
 private:
-
   enum state_m stateMachine;
+
+  void initialize(MCP_CAN* bus, uint8_t mcp_int,  uint32_t canAddr, uint32_t timeout, void (*callback)(long unsigned int, uint8_t*, unsigned int));
 
   void parseSingle();
   void parseFirst();
@@ -133,6 +193,12 @@ private:
   int sendFirst();
   int sendConsecutive();
 
+  int recvMessage();
+  int sendMessage();
+
+  bool hasOutgoingMessage();
+  void clearTX();
+
   void changeState(enum state_m s);
 
   int sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block_size, uint8_t separation_time);
@@ -140,17 +206,27 @@ private:
   // MCP_CAN_lib stuff
   MCP_CAN* bus;
   uint8_t mcp_int;
+  uint32_t canAddr;
+
+  struct ISOTPTransmission rx;
+  struct ISOTPTransmission tx;
+
+  /*
 
   // Can Frame Stuff
   long unsigned int canTxId;
   long unsigned int canRxId;
-  unsigned char canLen;
-  unsigned char canBuf[8];
+
+  uint32_t frameRxId; // address for consecutive frames
+  uint8_t canLen;
+  uint8_t canBuf[8];
 
   // ISO-TP Stuff
   uint8_t mfBuf[ISOTP_MAX_RECV_BUFFER];
   uint16_t mfBufSize;
   uint16_t mfDataSize;
+
+  */
 
   uint8_t wait_time;
   uint8_t block_size;
@@ -158,7 +234,8 @@ private:
   int16_t flowExpected;
   uint16_t numFramesSent;
 
-  unsigned long timeOut;
+  uint32_t timeOutTimer;
+  uint32_t timeout;
 
   void (*callback)(long unsigned int, uint8_t*, unsigned int);
 };
