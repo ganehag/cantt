@@ -2,7 +2,7 @@
  */
 
 #include "Arduino.h"
-#include "isotp.h"
+#include "isotpish.h"
 
 
 IsoTp::IsoTp(uint32_t canAddr,
@@ -247,6 +247,8 @@ int IsoTp::sendMessage() {
     if(this->canSend == NULL) {
         return 1;
     }
+
+    this->tx.can.id = this->tx.address;
 
     if(this->canSend(this->tx.can) != 0) {
         return 1;

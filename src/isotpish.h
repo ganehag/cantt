@@ -99,6 +99,8 @@ back to 0 and so on. Is is used as a very basic way to ensure that each frame is
 #define FRAME_TYPE(x) (x >> 4)
 
 
+#if(PLATFORM_ID == 0)
+
 struct CANMessage {
    uint32_t id;
    bool     extended; // Not used currently
@@ -106,6 +108,8 @@ struct CANMessage {
    uint8_t  len;
    uint8_t  data[8];
 };
+
+#endif
 
 struct ISOTPTransmission {
   uint32_t address;
