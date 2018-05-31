@@ -131,7 +131,7 @@ void IsoTp::parseSingle() {
        frameSize > 0 && frameSize < 8 && 
        this->callback != NULL) {
         // Use the data directly from the can buffer, no need to use the message buffer
-        this->callback(this->rx.address, &this->rx.can.data[1], frameSize);
+        this->callback(this->rx.can.id, &this->rx.can.data[1], frameSize);
     }
 }
 
@@ -188,6 +188,7 @@ int IsoTp::sendSingle() {
     this->tx.can.data[0] = (ISOTP_SINGLE_FRAME << 4) | this->tx.size;
     memcpy(&this->tx.can.data[1], this->tx.message, 7);
     this->tx.can.len = 1 + this->tx.size;
+    this->tx.can.id = this->tx.address;
 
     return this->sendMessage();
 }
@@ -284,7 +285,6 @@ void IsoTp::loop() {
     if(this->timeOutTimer > 0 && this->timeOutTimer + ISOTP_MACHINE_TIMEOUT < millis()) {
         this->changeState(IDLE);
     }
-
 
     // FIXME: timeout for multi frame recv.
     // this->inbox = false;
