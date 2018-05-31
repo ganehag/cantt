@@ -4,25 +4,36 @@
 #include "Arduino.h"
 #include "isotp.h"
 
-/**
- * Constructor.
- */
-IsoTp::IsoTp(MCP_CAN* bus, uint8_t mcp_int,  uint32_t canAddr, void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
-    this->initialize(bus, mcp_int, canAddr, ISOTP_MACHINE_TIMEOUT, callback);
+
+IsoTp::IsoTp(uint32_t canAddr,
+            uint8_t (*canAvailable)(),
+            uint8_t (*canRead)(CANMessage &msg),
+            uint8_t (*canSend)(const CANMessage &msg), 
+            void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
+    this->initialize(canAddr, ISOTP_STATE_TIMEOUT, canAvailable, canRead, canSend, callback);
 }
 
-IsoTp::IsoTp(MCP_CAN* bus, uint8_t mcp_int,  uint32_t canAddr, uint32_t timeout, void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
-    this->initialize(bus, mcp_int, canAddr, timeout, callback);
+IsoTp::IsoTp(uint32_t canAddr, uint32_t timeout,
+            uint8_t (*canAvailable)(),
+            uint8_t (*canRead)(CANMessage &msg),
+            uint8_t (*canSend)(const CANMessage &msg), 
+            void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
+    this->initialize(canAddr, timeout, canAvailable, canRead, canSend, callback);
 }
 
-void IsoTp::initialize(MCP_CAN* bus, uint8_t mcp_int, uint32_t canAddr, uint32_t timeout, void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
-    // Arguments
-    this->bus = bus;
-    this->mcp_int = mcp_int;
+void IsoTp::initialize(uint32_t canAddr, uint32_t timeout,
+                      uint8_t (*canAvailable)(),
+                      uint8_t (*canRead)(CANMessage &msg),
+                      uint8_t (*canSend)(const CANMessage &msg), 
+                      void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
+
+    // Function pointers
     this->callback = callback;
+    this->canAvailable = canAvailable;
+    this->canRead = canRead;
+    this->canSend = canSend;
 
-    this->stateMachine = DISABLED;
-
+    // Device CAN address/priority
     this->canAddr = canAddr;
 
     // TX
@@ -30,7 +41,7 @@ void IsoTp::initialize(MCP_CAN* bus, uint8_t mcp_int, uint32_t canAddr, uint32_t
     this->tx.can.id = 0;
     this->tx.can.extended = false;
     this->tx.can.rtr = false;
-    memset(this->tx.can.data, 0, CAN_MAX_DATA_SIZE);
+    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
     this->tx.size = 0;
     this->tx.message_pos = 0;
     memset(this->tx.message, 0, ISOTP_MAX_RECV_BUFFER);
@@ -41,70 +52,39 @@ void IsoTp::initialize(MCP_CAN* bus, uint8_t mcp_int, uint32_t canAddr, uint32_t
     this->rx.can.id = 0;
     this->rx.can.extended = false;
     this->rx.can.rtr = false;
-    memset(this->rx.can.data, 0, CAN_MAX_DATA_SIZE);
+    memset(this->rx.can.data, 0, ISOTP_CAN_DATASIZE);
     this->rx.size = 0;
     this->rx.message_pos = 0;
     memset(this->rx.message, 0, ISOTP_MAX_RECV_BUFFER);
     this->rx.frameCounter = 0;
 
-
-    // this->canRxId = 0;
-    // this->canTxId = 0;
-    // this->frameRxId = ISOTP_INVALID_ADDR;
-    // this->canLen = 0;
-    // memset(this->canBuf, 0, sizeof(this->canBuf));
-
-    // this->mfBufSize = 0;
-    // this->mfDataSize = 0;
-    // memset(this->mfBuf, 0, sizeof(this->mfBufSize));
-
-    this->wait_time = ISOTP_DEFAULT_WAIT_TIME; // 5ms
-    this->block_size = 0;
-    this->flowExpected = -1; // Never
-    // this->numFramesSent = 0;
+    // Protocol Stuff
+    this->wait_time = ISOTP_DEFAULT_WAIT_TIME;
     this->timeOutTimer = millis();
     this->timeout = timeout;
+
+
+    this->stateMachine = DISABLED;
+
+
+    /* Flow Control (not implemented)
+
+    this->block_size = 0;
+    this->flowExpected = -1; // Never
+
+    */
 }
-
-/*
-
-int IsoTp::sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block_size, uint8_t separation_time) {
-    uint8_t data[3] = {
-        (uint8_t)((ISOTP_FLOWCTRL_FRAME << 4) | fc_flag),
-        block_size,
-        separation_time
-    };
-
-    uint8_t sndStat = this->bus->sendMsgBuf(arbId, sizeof(data), data);
-    if (sndStat == CAN_OK) {
-        return 0;
-    }
-
-    return 1;
-}
-
-*/
 
 
 void IsoTp::begin() {
-    pinMode(this->mcp_int, INPUT);
     this->changeState(IDLE);
 }
-
-/*
-void IsoTp::parseFlow() {
-    this->flowExpected = this->canBuf[1];
-    if(this->flowExpected == 0) {
-        this->flowExpected = -1; // Disable
-    }
-}
-*/
 
 void IsoTp::changeState(enum state_m s) {
     // FIXME: Handle variable reset etc...
 
     if(s == IDLE && this->hasOutgoingMessage()) {
-        delay(100); // FIXME
+        delay(ISOTP_DEFAULT_HOLDOFF_DELAY);
 
         // Can't IDLE when I have stuff to do.
         if(this->tx.size <= 7) {
@@ -149,13 +129,6 @@ void IsoTp::parseFirst() {
 }
 
 int IsoTp::parseConsecutive() {
-    // FIXME: Support for some kind of timeout?
-    // FIXME: keep track of block counts, so that we can send a new Flow frame if required.
-
-    // if(this->frameRxId != ISOTP_INVALID_ADDR && this->canRxId != this->frameRxId) {
-    //    return -1;
-    //}
-
     uint16_t frameIndex = this->rx.can.data[0] & ISOTP_CONSECUTIVE_INDEX_MASK;
 
     if(this->rx.size - this->rx.message_pos > 7) {
@@ -176,14 +149,10 @@ int IsoTp::parseConsecutive() {
     }
 
     return this->rx.size - this->rx.message_pos;
-
-    // check for number of frames
-    // send a new flow frame if this->block_size != 0
-    // sendFlowFrame
 }
 
 int IsoTp::sendSingle() {
-    memset(this->tx.can.data, 0, CAN_MAX_DATA_SIZE);
+    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
 
     this->tx.can.data[0] = (ISOTP_SINGLE_FRAME << 4) | this->tx.size;
     memcpy(&this->tx.can.data[1], this->tx.message, 7);
@@ -194,12 +163,12 @@ int IsoTp::sendSingle() {
 }
 
 int IsoTp::sendFirst() {
-    memset(this->tx.can.data, 0, CAN_MAX_DATA_SIZE);
+    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
 
     this->tx.can.data[0] = (ISOTP_FIRST_FRAME << 4) | (this->tx.size >> 8);
     this->tx.can.data[1] = this->tx.size & ISOTP_FIRST_SIZE_MASK_BYTE1;
     memcpy(&this->tx.can.data[2], this->tx.message, 6);
-    this->tx.can.len = CAN_MAX_DATA_SIZE;
+    this->tx.can.len = ISOTP_CAN_DATASIZE;
 
     if(this->sendMessage() != 0) {
         this->changeState(IDLE);
@@ -222,7 +191,7 @@ int IsoTp::sendFirst() {
 int IsoTp::sendConsecutive() {
     uint8_t maxSend = 7;
 
-    memset(this->tx.can.data, 0, CAN_MAX_DATA_SIZE);
+    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
 
     // Set frame type and counter
     this->tx.can.data[0] = (ISOTP_CONSECUTIVE_FRAME << 4) | (this->tx.frameCounter % 0x0F);
@@ -237,7 +206,7 @@ int IsoTp::sendConsecutive() {
     this->tx.can.len = 1 + maxSend; // HDR + data
     this->tx.can.id = this->tx.address;
 
-    if(this->sendMessage() != CAN_OK) {
+    if(this->sendMessage() != 0) {
         this->changeState(IDLE);
     } else {
         this->tx.message_pos += maxSend;
@@ -257,48 +226,81 @@ int IsoTp::sendConsecutive() {
 }
 
 int IsoTp::recvMessage() {
-    memset(this->rx.can.data, 0, CAN_MAX_DATA_SIZE);
+    this->rx.can.extended = false;
+    this->rx.can.rtr = false;
+    memset(this->rx.can.data, 0, ISOTP_CAN_DATASIZE);
 
-    if (this->bus->readMsgBuf(&this->rx.can.id, &this->rx.can.len, this->rx.can.data) != CAN_OK) {
+    if(this->canRead == NULL) {
+        return 1;
+    }
+
+    if(this->canRead(this->rx.can) != 0) {
         return 1;
     }
 
     this->rx.address = this->rx.can.id;
-    // FIXME: can.id contains RTX and EXTENDED bits.
 
     return 0;
 }
 
 int IsoTp::sendMessage() {
-    if (this->bus->sendMsgBuf(this->tx.can.id, this->tx.can.len, this->tx.can.data) != CAN_OK) {
+    if(this->canSend == NULL) {
+        return 1;
+    }
+
+    if(this->canSend(this->tx.can) != 0) {
         return 1;
     }
 
     return 0;
 }
+
+
+/*
+
+int IsoTp::sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block_size, uint8_t separation_time) {
+    uint8_t data[3] = {
+        (uint8_t)((ISOTP_FLOWCTRL_FRAME << 4) | fc_flag),
+        block_size,
+        separation_time
+    };
+
+    uint8_t sndStat = this->bus->sendMsgBuf(arbId, sizeof(data), data);
+    if (sndStat == 0) {
+        return 0;
+    }
+
+    return 1;
+}
+
+void IsoTp::parseFlow() {
+    this->flowExpected = this->canBuf[1];
+    if(this->flowExpected == 0) {
+        this->flowExpected = -1; // Disable
+    }
+}
+*/
+
 
 void IsoTp::loop() {
     if(this->timeOutTimer > millis()) { // overflow after ~50days;
         this->timeOutTimer = millis();
     }
 
-    if(this->timeOutTimer > 0 && this->timeOutTimer + ISOTP_MACHINE_TIMEOUT < millis()) {
+    if(this->timeOutTimer > 0 && this->timeOutTimer + ISOTP_STATE_TIMEOUT < millis()) {
         this->changeState(IDLE);
     }
-
-    // FIXME: timeout for multi frame recv.
-    // this->inbox = false;
 
     switch(stateMachine) {
         case IDLE:
         case CHECKREAD:
-            if(!digitalRead(this->mcp_int)) {
+            if(this->canAvailable()) { // if(!digitalRead(this->mcp_int)) {
                 this->changeState(READ);
             }
         break;
 
         case CHECK_COLLISION: // Check if something else arrived on the bus while sending multiframe message
-            if(digitalRead(this->mcp_int) == 0) {
+            if(this->canAvailable()) { // if(digitalRead(this->mcp_int) == 0) {
                 if(this->recvMessage() == 0) {
                     if(FRAME_TYPE(this->rx.can.data[0]) == ISOTP_FIRST_FRAME || FRAME_TYPE(this->rx.can.data[0]) == ISOTP_CONSECUTIVE_FRAME) {
                         // Collision occued
@@ -341,15 +343,11 @@ void IsoTp::loop() {
                 this->changeState(IDLE);
 
             } else if (FRAME_TYPE(this->rx.can.data[0]) == ISOTP_FIRST_FRAME) {
-                // if(this->frameRxId == ISOTP_INVALID_ADDR) { // Not occupied with another frame
-                    // this->frameRxId = this->canRxId;
-                    this->parseFirst();
-                    // this->changeState(SEND_FLOW);    
-                    this->changeState(CHECKREAD);
-                // }
+                this->parseFirst();
+                this->changeState(CHECKREAD);
+
             } else if (FRAME_TYPE(this->rx.can.data[0]) == ISOTP_CONSECUTIVE_FRAME) {
                 if(this->parseConsecutive() == 0) {
-                    // this->frameRxId = ISOTP_INVALID_ADDR;
                     this->changeState(IDLE);
                 } else {
                     this->changeState(CHECKREAD);  // Fetch a new frame    
@@ -374,19 +372,6 @@ void IsoTp::loop() {
                 this->changeState(CHECKREAD);
             }
         break;
-/*
-        case SEND_FLOW:
-            // FIXME: Where should the reply go? It can't be a fixed location.
-            // The easiest way that I see, is to use the inverse of that address.
-            // 0x000 <-> 0x7FF, 0x100 <-> 0x6FF, 0x160 <-> 0x69F etc.
-
-            this->sendFlowFrame(this->canAddr,
-                                ISOTP_FLOW_CLEAR,
-                                this->block_size, this->wait_time);
-            
-            this->changeState(BUSY);  // Fetch a new frame
-        break;
-        */
 
         case SEND_SINGLE:
             if(this->sendSingle() == 0) {
@@ -413,6 +398,19 @@ void IsoTp::loop() {
                 this->changeState(CHECK_COLLISION);
             }
         break;
+        /*
+        case SEND_FLOW:
+            // FIXME: Where should the reply go? It can't be a fixed location.
+            // The easiest way that I see, is to use the inverse of that address.
+            // 0x000 <-> 0x7FF, 0x100 <-> 0x6FF, 0x160 <-> 0x69F etc.
+
+            this->sendFlowFrame(this->canAddr,
+                                ISOTP_FLOW_CLEAR,
+                                this->block_size, this->wait_time);
+            
+            this->changeState(BUSY);  // Fetch a new frame
+        break;
+        */
         /*
         case RECV_FLOW:
             this->recvMessage();
@@ -452,13 +450,6 @@ int IsoTp::send(uint32_t addr, uint8_t* payload, uint16_t length) {
     while(this->stateMachine != IDLE) {
         this->loop();
     }
-
-    /*
-    this->tx.can.id = addr & ISOTP_ADDR_UNMASK;
-    this->tx.can.extended = IS_EXTENDED(addr);
-    this->tx.can.rtr = IS_RTR(addr);
-    this->tx.can.len = length;
-    */
 
     this->tx.address = addr;
     this->tx.size = length;
