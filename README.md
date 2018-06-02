@@ -62,14 +62,14 @@ void setup() {
 }
 
 void loop {
-  isotp.cantt();
+  cantt.cantt();
   // data format for a publish is:
   // BYTE0: 0x03
   // BYTE1, BYTE2: (uint16_t topic length in LSB MSB order) 0x01 0x00 
   // BYTE3..BYTEX: topic
   // BYTEX+1, BYTEX+2: (uint16_t payload length in LSB MSB order) 0x01 0x00 
   // BYTEX+3..BYTEY: payload
-  // isotp.send(DEVICE_ID, data, data_len);
+  // cantt.send(DEVICE_ID, data, data_len);
 }
 ```
 
