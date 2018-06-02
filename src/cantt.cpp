@@ -1,19 +1,20 @@
-/* isotp library by Mikael Ganehag Brorsson
+/* 
+ * CANTT library by Mikael Ganehag Brorsson
  */
 
 #include "Arduino.h"
-#include "isotpish.h"
+#include "cantt.h"
 
 
-IsoTp::IsoTp(uint32_t canAddr,
+CANTT::CANTT(uint32_t canAddr,
             uint8_t (*canAvailable)(),
             uint8_t (*canRead)(CANMessage &msg),
             uint8_t (*canSend)(const CANMessage &msg), 
             void (*callback)(long unsigned int, uint8_t*, unsigned int)) {
-    this->initialize(canAddr, ISOTP_STATE_TIMEOUT, canAvailable, canRead, canSend, callback);
+    this->initialize(canAddr, CANTT_STATE_TIMEOUT, canAvailable, canRead, canSend, callback);
 }
 
-IsoTp::IsoTp(uint32_t canAddr, uint32_t timeout,
+CANTT::CANTT(uint32_t canAddr, uint32_t timeout,
             uint8_t (*canAvailable)(),
             uint8_t (*canRead)(CANMessage &msg),
             uint8_t (*canSend)(const CANMessage &msg), 
@@ -21,7 +22,7 @@ IsoTp::IsoTp(uint32_t canAddr, uint32_t timeout,
     this->initialize(canAddr, timeout, canAvailable, canRead, canSend, callback);
 }
 
-void IsoTp::initialize(uint32_t canAddr, uint32_t timeout,
+void CANTT::initialize(uint32_t canAddr, uint32_t timeout,
                       uint8_t (*canAvailable)(),
                       uint8_t (*canRead)(CANMessage &msg),
                       uint8_t (*canSend)(const CANMessage &msg), 
@@ -41,10 +42,10 @@ void IsoTp::initialize(uint32_t canAddr, uint32_t timeout,
     this->tx.can.id = 0;
     this->tx.can.extended = false;
     this->tx.can.rtr = false;
-    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
+    memset(this->tx.can.data, 0, CANTT_CAN_DATASIZE);
     this->tx.size = 0;
     this->tx.message_pos = 0;
-    memset(this->tx.message, 0, ISOTP_MAX_RECV_BUFFER);
+    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
     this->tx.frameCounter = 0;
 
     // RX
@@ -52,14 +53,14 @@ void IsoTp::initialize(uint32_t canAddr, uint32_t timeout,
     this->rx.can.id = 0;
     this->rx.can.extended = false;
     this->rx.can.rtr = false;
-    memset(this->rx.can.data, 0, ISOTP_CAN_DATASIZE);
+    memset(this->rx.can.data, 0, CANTT_CAN_DATASIZE);
     this->rx.size = 0;
     this->rx.message_pos = 0;
-    memset(this->rx.message, 0, ISOTP_MAX_RECV_BUFFER);
+    memset(this->rx.message, 0, CANTT_MAX_RECV_BUFFER);
     this->rx.frameCounter = 0;
 
     // Protocol Stuff
-    this->wait_time = ISOTP_DEFAULT_WAIT_TIME;
+    this->wait_time = CANTT_DEFAULT_WAIT_TIME;
     this->timeOutTimer = millis();
     this->timeout = timeout;
 
@@ -76,15 +77,15 @@ void IsoTp::initialize(uint32_t canAddr, uint32_t timeout,
 }
 
 
-void IsoTp::begin() {
+void CANTT::begin() {
     this->changeState(IDLE);
 }
 
-void IsoTp::changeState(enum state_m s) {
+void CANTT::changeState(enum state_m s) {
     // FIXME: Handle variable reset etc...
 
     if(s == IDLE && this->hasOutgoingMessage()) {
-        delay(ISOTP_DEFAULT_HOLDOFF_DELAY);
+        delay(CANTT_DEFAULT_HOLDOFF_DELAY);
 
         // Can't IDLE when I have stuff to do.
         if(this->tx.size <= 7) {
@@ -103,8 +104,8 @@ void IsoTp::changeState(enum state_m s) {
     }
 }
 
-void IsoTp::parseSingle() {
-    uint8_t frameSize = this->rx.can.data[0] & ISOTP_SINGLE_SIZE_MASK;
+void CANTT::parseSingle() {
+    uint8_t frameSize = this->rx.can.data[0] & CANTT_SINGLE_SIZE_MASK;
 
     // Ensure that the frame has the correct size
     if(frameSize == this->rx.can.len - 1 &&
@@ -115,12 +116,12 @@ void IsoTp::parseSingle() {
     }
 }
 
-void IsoTp::parseFirst() {
-    uint16_t frameSize = ((this->rx.can.data[0] & ISOTP_SINGLE_SIZE_MASK) << 8) | this->rx.can.data[1];
+void CANTT::parseFirst() {
+    uint16_t frameSize = ((this->rx.can.data[0] & CANTT_SINGLE_SIZE_MASK) << 8) | this->rx.can.data[1];
 
-    memset(this->rx.message, 0, ISOTP_MAX_RECV_BUFFER);
+    memset(this->rx.message, 0, CANTT_MAX_RECV_BUFFER);
 
-    if(frameSize >= 8 && frameSize <= ISOTP_MAX_DATASIZE) {
+    if(frameSize >= 8 && frameSize <= CANTT_MAX_DATASIZE) {
         this->rx.size = frameSize;
 
         memcpy(this->rx.message, &this->rx.can.data[2], 6); // All of the remaining data in this frame
@@ -128,8 +129,8 @@ void IsoTp::parseFirst() {
     }
 }
 
-int IsoTp::parseConsecutive() {
-    uint16_t frameIndex = this->rx.can.data[0] & ISOTP_CONSECUTIVE_INDEX_MASK;
+int CANTT::parseConsecutive() {
+    uint16_t frameIndex = this->rx.can.data[0] & CANTT_CONSECUTIVE_INDEX_MASK;
 
     if(this->rx.size - this->rx.message_pos > 7) {
         // not the last frame
@@ -143,7 +144,7 @@ int IsoTp::parseConsecutive() {
 
         this->callback(this->rx.address, this->rx.message, this->rx.size);
         
-        memset(this->rx.message, 0 , ISOTP_MAX_RECV_BUFFER);
+        memset(this->rx.message, 0 , CANTT_MAX_RECV_BUFFER);
         this->rx.size = 0;
         this->rx.message_pos = 0;
     }
@@ -151,10 +152,10 @@ int IsoTp::parseConsecutive() {
     return this->rx.size - this->rx.message_pos;
 }
 
-int IsoTp::sendSingle() {
-    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
+int CANTT::sendSingle() {
+    memset(this->tx.can.data, 0, CANTT_CAN_DATASIZE);
 
-    this->tx.can.data[0] = (ISOTP_SINGLE_FRAME << 4) | this->tx.size;
+    this->tx.can.data[0] = (CANTT_SINGLE_FRAME << 4) | this->tx.size;
     memcpy(&this->tx.can.data[1], this->tx.message, 7);
     this->tx.can.len = 1 + this->tx.size;
     this->tx.can.id = this->tx.address;
@@ -162,13 +163,13 @@ int IsoTp::sendSingle() {
     return this->sendMessage();
 }
 
-int IsoTp::sendFirst() {
-    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
+int CANTT::sendFirst() {
+    memset(this->tx.can.data, 0, CANTT_CAN_DATASIZE);
 
-    this->tx.can.data[0] = (ISOTP_FIRST_FRAME << 4) | (this->tx.size >> 8);
-    this->tx.can.data[1] = this->tx.size & ISOTP_FIRST_SIZE_MASK_BYTE1;
+    this->tx.can.data[0] = (CANTT_FIRST_FRAME << 4) | (this->tx.size >> 8);
+    this->tx.can.data[1] = this->tx.size & CANTT_FIRST_SIZE_MASK_BYTE1;
     memcpy(&this->tx.can.data[2], this->tx.message, 6);
-    this->tx.can.len = ISOTP_CAN_DATASIZE;
+    this->tx.can.len = CANTT_CAN_DATASIZE;
 
     if(this->sendMessage() != 0) {
         this->changeState(IDLE);
@@ -188,13 +189,13 @@ int IsoTp::sendFirst() {
     return 0;
 }
 
-int IsoTp::sendConsecutive() {
+int CANTT::sendConsecutive() {
     uint8_t maxSend = 7;
 
-    memset(this->tx.can.data, 0, ISOTP_CAN_DATASIZE);
+    memset(this->tx.can.data, 0, CANTT_CAN_DATASIZE);
 
     // Set frame type and counter
-    this->tx.can.data[0] = (ISOTP_CONSECUTIVE_FRAME << 4) | (this->tx.frameCounter % 0x0F);
+    this->tx.can.data[0] = (CANTT_CONSECUTIVE_FRAME << 4) | (this->tx.frameCounter % 0x0F);
 
     // Copy some or remaining data
     if(this->tx.size - this->tx.message_pos <= 7) {
@@ -225,10 +226,10 @@ int IsoTp::sendConsecutive() {
     return this->tx.size - this->tx.message_pos;
 }
 
-int IsoTp::recvMessage() {
+int CANTT::recvMessage() {
     this->rx.can.extended = false;
     this->rx.can.rtr = false;
-    memset(this->rx.can.data, 0, ISOTP_CAN_DATASIZE);
+    memset(this->rx.can.data, 0, CANTT_CAN_DATASIZE);
 
     if(this->canRead == NULL) {
         return 1;
@@ -243,7 +244,7 @@ int IsoTp::recvMessage() {
     return 0;
 }
 
-int IsoTp::sendMessage() {
+int CANTT::sendMessage() {
     if(this->canSend == NULL) {
         return 1;
     }
@@ -260,9 +261,9 @@ int IsoTp::sendMessage() {
 
 /*
 
-int IsoTp::sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block_size, uint8_t separation_time) {
+int CANTT::sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block_size, uint8_t separation_time) {
     uint8_t data[3] = {
-        (uint8_t)((ISOTP_FLOWCTRL_FRAME << 4) | fc_flag),
+        (uint8_t)((CANTT_FLOWCTRL_FRAME << 4) | fc_flag),
         block_size,
         separation_time
     };
@@ -275,7 +276,7 @@ int IsoTp::sendFlowFrame(long unsigned int arbId, uint8_t fc_flag, uint8_t block
     return 1;
 }
 
-void IsoTp::parseFlow() {
+void CANTT::parseFlow() {
     this->flowExpected = this->canBuf[1];
     if(this->flowExpected == 0) {
         this->flowExpected = -1; // Disable
@@ -284,12 +285,12 @@ void IsoTp::parseFlow() {
 */
 
 
-void IsoTp::loop() {
+void CANTT::loop() {
     if(this->timeOutTimer > millis()) { // overflow after ~50days;
         this->timeOutTimer = millis();
     }
 
-    if(this->timeOutTimer > 0 && this->timeOutTimer + ISOTP_STATE_TIMEOUT < millis()) {
+    if(this->timeOutTimer > 0 && this->timeOutTimer + CANTT_STATE_TIMEOUT < millis()) {
         this->changeState(IDLE);
     }
 
@@ -304,7 +305,7 @@ void IsoTp::loop() {
         case CHECK_COLLISION: // Check if something else arrived on the bus while sending multiframe message
             if(this->canAvailable()) { // if(digitalRead(this->mcp_int) == 0) {
                 if(this->recvMessage() == 0) {
-                    if(FRAME_TYPE(this->rx.can.data[0]) == ISOTP_FIRST_FRAME || FRAME_TYPE(this->rx.can.data[0]) == ISOTP_CONSECUTIVE_FRAME) {
+                    if(FRAME_TYPE(this->rx.can.data[0]) == CANTT_FIRST_FRAME || FRAME_TYPE(this->rx.can.data[0]) == CANTT_CONSECUTIVE_FRAME) {
                         // Collision occued
                         // RX Result will be garbage without "per address frame buffer" support
 
@@ -340,24 +341,24 @@ void IsoTp::loop() {
         break;
 
         case PARSE_WHICH:
-            if(FRAME_TYPE(this->rx.can.data[0]) == ISOTP_SINGLE_FRAME) {
+            if(FRAME_TYPE(this->rx.can.data[0]) == CANTT_SINGLE_FRAME) {
                 this->parseSingle();
                 this->changeState(IDLE);
 
-            } else if (FRAME_TYPE(this->rx.can.data[0]) == ISOTP_FIRST_FRAME) {
+            } else if (FRAME_TYPE(this->rx.can.data[0]) == CANTT_FIRST_FRAME) {
                 this->parseFirst();
                 this->changeState(CHECKREAD);
 
-            } else if (FRAME_TYPE(this->rx.can.data[0]) == ISOTP_CONSECUTIVE_FRAME) {
+            } else if (FRAME_TYPE(this->rx.can.data[0]) == CANTT_CONSECUTIVE_FRAME) {
                 if(this->parseConsecutive() == 0) {
                     this->changeState(IDLE);
                 } else {
                     this->changeState(CHECKREAD);  // Fetch a new frame    
                 }
                 
-            } /* else if (FRAME_TYPE(this->canBuf[0]) == ISOTP_FLOWCTRL_FRAME) {
+            } /* else if (FRAME_TYPE(this->canBuf[0]) == CANTT_FLOWCTRL_FRAME) {
 
-                if(this->canBuf[0] & 0x0F == ISOTP_FLOW_CLEAR) { // mask for 0000 1111
+                if(this->canBuf[0] & 0x0F == CANTT_FLOW_CLEAR) { // mask for 0000 1111
                     if(this->canBuf[1] >= this->block_size) {
                         this->block_size = this->canBuf[1];
                     } 
@@ -407,7 +408,7 @@ void IsoTp::loop() {
             // 0x000 <-> 0x7FF, 0x100 <-> 0x6FF, 0x160 <-> 0x69F etc.
 
             this->sendFlowFrame(this->canAddr,
-                                ISOTP_FLOW_CLEAR,
+                                CANTT_FLOW_CLEAR,
                                 this->block_size, this->wait_time);
             
             this->changeState(BUSY);  // Fetch a new frame
@@ -416,7 +417,7 @@ void IsoTp::loop() {
         /*
         case RECV_FLOW:
             this->recvMessage();
-            if (FRAME_TYPE(this->canBuf[0]) == ISOTP_FLOWCTRL_FRAME) {
+            if (FRAME_TYPE(this->canBuf[0]) == CANTT_FLOWCTRL_FRAME) {
                 this->parseFlow();
                 this->changeState(SEND_CONSECUTIVE);
             } else {
@@ -428,23 +429,23 @@ void IsoTp::loop() {
     }
 }
 
-void IsoTp::clearTX() {
-    memset(this->tx.message, 0, ISOTP_MAX_RECV_BUFFER);
+void CANTT::clearTX() {
+    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
     this->tx.message_pos = 0;
     this->tx.size = 0;
     this->tx.address = 0;
 };
 
-bool IsoTp::hasOutgoingMessage() {
+bool CANTT::hasOutgoingMessage() {
     return this->tx.size > 0;
 }
 
-int IsoTp::send(uint8_t * payload, uint16_t length) {
+int CANTT::send(uint8_t * payload, uint16_t length) {
     this->send(this->canAddr, payload, length);
 }
 
-int IsoTp::send(uint32_t addr, uint8_t* payload, uint16_t length) {
-    if(length > ISOTP_MAX_DATASIZE || payload == NULL) {
+int CANTT::send(uint32_t addr, uint8_t* payload, uint16_t length) {
+    if(length > CANTT_MAX_DATASIZE || payload == NULL) {
         return 1;
     }
 
@@ -456,7 +457,7 @@ int IsoTp::send(uint32_t addr, uint8_t* payload, uint16_t length) {
     this->tx.address = addr;
     this->tx.size = length;
     this->tx.message_pos = 0;
-    memset(this->tx.message, 0, ISOTP_MAX_RECV_BUFFER);
+    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
     memcpy(this->tx.message, payload, length);
 
     if(this->tx.size <= 7) {  // Single frame
