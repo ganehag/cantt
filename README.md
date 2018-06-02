@@ -35,9 +35,9 @@ frames.
 
 ## Simple Example
 
+```cpp
 CANChannel CAN0(CAN_D1_D2); // Particle Photon/Electron
 
-```cpp
 void callback(long unsigned int id, byte* payload, unsigned int length) {
   // Received frames
 }
