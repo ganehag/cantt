@@ -40,6 +40,13 @@ CANChannel CAN0(CAN_D1_D2); // Particle Photon/Electron
 
 void callback(long unsigned int id, byte* payload, unsigned int length) {
   // Received frames
+  // The payload data is in unparsed form, a "raw" CANTT message.
+  // For a publish from CANTT, this would be:
+  // BYTE0: 0x03
+  // BYTE1, BYTE2: (uint16_t topic length in LSB MSB order) 0x01 0x00 
+  // BYTE3..BYTEX: topic
+  // BYTEX+1, BYTEX+2: (uint16_t payload length in LSB MSB order) 0x01 0x00 
+  // BYTEX+3..BYTEY: payload
 }
 uint8_t canAvailable() {
   return CAN0.available();
@@ -63,13 +70,7 @@ void setup() {
 
 void loop {
   cantt.cantt();
-  // data format for a publish is:
-  // BYTE0: 0x03
-  // BYTE1, BYTE2: (uint16_t topic length in LSB MSB order) 0x01 0x00 
-  // BYTE3..BYTEX: topic
-  // BYTEX+1, BYTEX+2: (uint16_t payload length in LSB MSB order) 0x01 0x00 
-  // BYTEX+3..BYTEY: payload
-  // cantt.send(DEVICE_ID, data, data_len);
+  // cantt.publish("some/topic", "some kind of data");
 }
 ```
 
