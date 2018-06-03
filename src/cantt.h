@@ -9,8 +9,11 @@
 #define CANTT_MAX_RECV_BUFFER 64
 #endif
 
+#define CANTT_MAX_MESSAGE_SIZE CANTT_MAX_RECV_BUFFER
+
 #define CANTT_MAX_DATASIZE 4095
 #define CANTT_CAN_DATASIZE 8
+
 
 #define CANTT_MAX_ADDR 0x7FF
 
@@ -33,6 +36,7 @@
 #define CANTT_CONSECUTIVE_FRAME (2)
 #define CANTT_FLOWCTRL_FRAME  (3)
 
+#define CANTT_MSG_PUBLISH 0x03
 
 #define FRAME_TYPE(x) (x >> 4)
 
@@ -41,8 +45,8 @@
 
 struct CANMessage {
    uint32_t id;
-   bool     extended; // Not used currently
-   bool     rtr;  // not used currently
+   bool     extended;
+   bool     rtr;
    uint8_t  len;
    uint8_t  data[8];
 };
@@ -91,6 +95,10 @@ public:
   int send(uint8_t *payload, uint16_t length);
   int send(uint32_t addr, uint8_t* payload, uint16_t length);
 
+  int publish(char *topic, char *payload);
+  int publish(uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len);
+  int publish(uint32_t priority, uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len);
+  int publish(uint32_t priority, char *topic, char *payload);
 
 private:
   enum state_m stateMachine;
@@ -116,7 +124,6 @@ private:
   void clearTX();
 
   void changeState(enum state_m s);
-
   
   uint32_t canAddr;
 

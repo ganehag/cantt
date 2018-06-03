@@ -81,6 +81,17 @@ void CANTT::begin() {
     this->changeState(IDLE);
 }
 
+void CANTT::clearTX() {
+    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
+    this->tx.message_pos = 0;
+    this->tx.size = 0;
+    this->tx.address = 0;
+};
+
+bool CANTT::hasOutgoingMessage() {
+    return this->tx.size > 0;
+}
+
 void CANTT::changeState(enum state_m s) {
     // FIXME: Handle variable reset etc...
 
@@ -258,6 +269,71 @@ int CANTT::sendMessage() {
     return 0;
 }
 
+int CANTT::publish(uint32_t priority, uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len) {
+    uint8_t buffer[CANTT_MAX_MESSAGE_SIZE];
+
+    // (HDR byte + 2 * uint16_t) + topic_len + payload_len
+    if(topic_len + payload_len + 5 > CANTT_MAX_MESSAGE_SIZE) {
+        return -1;
+    }
+
+    buffer[0] = CANTT_MSG_PUBLISH;
+    buffer[1] = (topic_len & 0xFF);
+    buffer[2] = (topic_len >> 8);
+    memcpy(&buffer[3], topic, topic_len);
+    buffer[3 + topic_len + 0] = (payload_len & 0xFF);
+    buffer[3 + topic_len + 1] = (payload_len >> 8);
+    memcpy(&buffer[3 + topic_len + 2], payload, payload_len);
+
+    return this->send(priority, buffer, topic_len + payload_len + 5);
+}
+
+int CANTT::publish(uint32_t priority, char *topic, char *payload) {
+    uint16_t topic_len = strlen(topic);
+    uint16_t payload_len = strlen(payload);
+    
+    return this->publish(priority, (uint8_t *)topic, topic_len, (uint8_t *)payload, payload_len);
+}
+
+int CANTT::publish(uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len) {
+    return this->publish(this->canAddr, topic, topic_len, payload, payload_len);
+}
+
+int CANTT::publish(char *topic, char *payload) {
+    uint16_t topic_len = strlen(topic);
+    uint16_t payload_len = strlen(payload);
+    
+    return publish((uint8_t *)topic, topic_len, (uint8_t *)payload, payload_len);
+}
+
+int CANTT::send(uint8_t * payload, uint16_t length) {
+    this->send(this->canAddr, payload, length);
+}
+
+int CANTT::send(uint32_t addr, uint8_t* payload, uint16_t length) {
+    if(length > CANTT_MAX_DATASIZE || payload == NULL) {
+        return 1;
+    }
+
+    // Busy block until recv is done and the buffer is available
+    while(this->stateMachine != IDLE) {
+        this->loop();
+    }
+
+    this->tx.address = addr;
+    this->tx.size = length;
+    this->tx.message_pos = 0;
+    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
+    memcpy(this->tx.message, payload, length);
+
+    if(this->tx.size <= 7) {  // Single frame
+        this->changeState(SEND_SINGLE);
+    } else { // multiframe
+        this->changeState(SEND_FIRST);
+    }
+
+    return 0;
+}
 
 /*
 
@@ -283,7 +359,6 @@ void CANTT::parseFlow() {
     }
 }
 */
-
 
 void CANTT::loop() {
     if(this->timeOutTimer > millis()) { // overflow after ~50days;
@@ -429,42 +504,3 @@ void CANTT::loop() {
     }
 }
 
-void CANTT::clearTX() {
-    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
-    this->tx.message_pos = 0;
-    this->tx.size = 0;
-    this->tx.address = 0;
-};
-
-bool CANTT::hasOutgoingMessage() {
-    return this->tx.size > 0;
-}
-
-int CANTT::send(uint8_t * payload, uint16_t length) {
-    this->send(this->canAddr, payload, length);
-}
-
-int CANTT::send(uint32_t addr, uint8_t* payload, uint16_t length) {
-    if(length > CANTT_MAX_DATASIZE || payload == NULL) {
-        return 1;
-    }
-
-    // Busy block until recv is done and the buffer is available
-    while(this->stateMachine != IDLE) {
-        this->loop();
-    }
-
-    this->tx.address = addr;
-    this->tx.size = length;
-    this->tx.message_pos = 0;
-    memset(this->tx.message, 0, CANTT_MAX_RECV_BUFFER);
-    memcpy(this->tx.message, payload, length);
-
-    if(this->tx.size <= 7) {  // Single frame
-        this->changeState(SEND_SINGLE);
-    } else { // multiframe
-        this->changeState(SEND_FIRST);
-    }
-
-    return 0;
-}
