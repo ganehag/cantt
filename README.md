@@ -69,7 +69,7 @@ void setup() {
 }
 
 void loop {
-  cantt.cantt();
+  cantt.loop();
   // cantt.publish("some/topic", "some kind of data");
 }
 ```
