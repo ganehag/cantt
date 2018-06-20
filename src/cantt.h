@@ -1,5 +1,7 @@
 #ifndef __CANTT_H__
 
+#include <stdint.h>
+
 /*
  * CANTT library by Mikael Ganehag Brorsson
  */
@@ -27,8 +29,8 @@
 #define CANTT_FLOW_ABORT 2
 
 #define CANTT_DEFAULT_WAIT_TIME 20
-#define CANTT_DEFAULT_HOLDOFF_DELAY 100
-#define CANTT_STATE_TIMEOUT 200 
+#define CANTT_DEFAULT_HOLDOFF_DELAY 20
+#define CANTT_STATE_TIMEOUT 100
 
 
 #define CANTT_SINGLE_FRAME (0)
@@ -37,6 +39,8 @@
 #define CANTT_FLOWCTRL_FRAME  (3)
 
 #define CANTT_MSG_PUBLISH 0x03
+
+#define CANTT_SEND_TIMEOUT 5000
 
 #define FRAME_TYPE(x) (x >> 4)
 
@@ -73,7 +77,8 @@ enum state_m {
   SEND_FIRST = 6,
   SEND_CONSECUTIVE = 7,
   RECV_FLOW = 8,
-  CHECK_COLLISION = 9  
+  CHECK_COLLISION = 9,
+  CHECKSEND = 10
 };
 
 class CANTT {
@@ -81,13 +86,13 @@ public:
   CANTT(uint32_t canAddr,
         uint8_t (*canAvailable)(),
         uint8_t (*canRead)(CANMessage &msg),
-        uint8_t (*canSend)(const CANMessage &msg), 
+        uint8_t (*canSend)(const CANMessage &msg),
         void (*callback)(long unsigned int, uint8_t*, unsigned int));
 
   CANTT(uint32_t canAddr, uint32_t timeout,
         uint8_t (*canAvailable)(),
         uint8_t (*canRead)(CANMessage &msg),
-        uint8_t (*canSend)(const CANMessage &msg), 
+        uint8_t (*canSend)(const CANMessage &msg),
         void (*callback)(long unsigned int, uint8_t*, unsigned int));
 
   void begin();
@@ -121,14 +126,26 @@ private:
   int sendMessage();
 
   bool hasOutgoingMessage();
+  bool inReception();
+  bool inTransmission();
+  void clearRX();
   void clearTX();
+  void rewindTX();
 
   void changeState(enum state_m s);
+
+  int waitUntilIdle();
   
   uint32_t canAddr;
 
+  // FIXME: need a specific buffer for single message, 
+  // to allow single messages to be sent without overwriting the
+  // long message buffer.
   struct CANTTbuf rx;
   struct CANTTbuf tx;
+
+  
+
 
 /*
   void parseFlow();
