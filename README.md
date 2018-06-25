@@ -36,18 +36,10 @@ frames.
 ## Simple Example
 
 ```cpp
+CANTransport CANTR0(canAvailable, canRead, canSend);
 CANChannel CAN0(CAN_D1_D2); // Particle Photon/Electron
+// MCP_CAN CAN0(10); // MCP_CAN LIbrary (Arduino)
 
-void callback(long unsigned int id, byte* payload, unsigned int length) {
-  // Received frames
-  // The payload data is in unparsed form, a "raw" CANTT message.
-  // For a publish from CANTT, this would be:
-  // BYTE0: 0x03
-  // BYTE1, BYTE2: (uint16_t topic length in LSB MSB order) 0x01 0x00 
-  // BYTE3..BYTEX: topic
-  // BYTEX+1, BYTEX+2: (uint16_t payload length in LSB MSB order) 0x01 0x00 
-  // BYTEX+3..BYTEY: payload
-}
 uint8_t canAvailable() {
   return CAN0.available();
 }
@@ -59,10 +51,11 @@ uint8_t canSend(const CANMessage &msg) {
   CAN0.transmit(msg);
   return 0;
 }
-CANTT cantt(DEVICE_ID, canAvailable, canRead, canSend, callback);
-uint8_t canAvailable() {
-  return CAN0.available();
+void callback(uint32_t addr, uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len) {
+  // Handle topic and payload
 }
+
+CANTT cantt(DEVICE_ID, CANTR0, callback);
 
 void setup() {
   cantt.begin();
@@ -73,4 +66,3 @@ void loop {
   // cantt.publish("some/topic", "some kind of data");
 }
 ```
-
