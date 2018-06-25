@@ -91,6 +91,9 @@ class CANTT {
 
     void begin();
     void loop();
+
+    void setAddr(uint32_t addr, bool isExt, bool isRTR);
+
     int send(uint8_t *payload, uint16_t length);
     int send(uint32_t addr, uint8_t *payload, uint16_t length);
 

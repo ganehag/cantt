@@ -49,6 +49,8 @@ void loop() {
 #include "cantt.h"
 #include "Arduino.h"
 
+#include <stdio.h>
+
 /**
     Constructor for the class object.
 
@@ -154,6 +156,11 @@ void CANTT::initialize(uint32_t canAddr, uint32_t timeout,
     this->block_size = 0;
     this->flowExpected = -1; // Never
     */
+}
+
+void CANTT::setAddr(uint32_t addr, bool isExt, bool isRTR) {
+    // FIXME: EXT RTR
+    this->canAddr = addr;
 }
 
 /**
@@ -529,8 +536,9 @@ int CANTT::send(uint32_t addr, uint8_t *payload, uint16_t length) {
         return 1;
     }
 
-    if (this->waitUntilIdle() != 0) {
-        return -1;
+    // TX buffer only supports one message
+    while(this->hasOutgoingMessage()) {
+        this->loop();
     }
 
     this->tx.address = addr;
