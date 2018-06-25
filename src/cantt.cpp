@@ -12,24 +12,23 @@
 Example:
 
 CANChannel CAN0(CAN_D1_D2);
-CANTT CAN0(0x100, canAvailable, canRead, canSend, callback);
-
-void callback(long unsigned int id, byte* payload, unsigned int length) {
-    // handle payload
-}
+CANTTransport CANTR0(canAvailable, canRead, canSend);
+CANTT CAN0(0x100, CANTR0 callback);
 
 uint8_t canAvailable() {
     return CAN0.available();
 }
-
 uint8_t canRead(CANMessage &msg) {
     CAN0.receive(msg);
     return 0;
 }
-
 uint8_t canSend(const CANMessage &msg) {
     CAN0.transmit(msg);
     return 0;
+}
+
+void callback(uint32_t addr, uint8_t *topic, uint16_t topic_len, uint8_t *payload, uint16_t payload_len) {
+    // topic and payload
 }
 
 void setup() {
@@ -54,45 +53,76 @@ void loop() {
 /**
     Constructor for the class object.
 
-    @param canAddr CAN bus address/priority
     @param canAvailable pointer to function that indicates the availibility of a
    new message on the CAN bus
     @param canRead pointer to function that reads the message from CAN bus into
    CANTT
     @param canSend pointer to function that sends a message from CANTT out over
    CAN bus
-    @param callback pointer to callback function once a complete message has
+    @param canCallback pointer to callback function once a complete message has
    been received
 */
-CANTT::CANTT(uint32_t canAddr, uint8_t (*canAvailable)(),
-             uint8_t (*canRead)(CANMessage &msg),
-             uint8_t (*canSend)(const CANMessage &msg),
-             void (*callback)(long unsigned int, uint8_t *, unsigned int)) {
-    this->initialize(canAddr, CANTT_STATE_TIMEOUT, canAvailable, canRead,
-                     canSend, callback);
-}
+CANTransport::CANTransport(uint8_t (*canAvailable)(),
+                           uint8_t (*canRead)(CANMessage &msg),
+                           uint8_t (*canSend)(const CANMessage &msg),
+                           void (*canCallback)(uint32_t, uint8_t *, uint16_t)) {
+    this->canAvailable = canAvailable;
+    this->canRead = canRead;
+    this->canSend = canSend;
+    this->canCallback = canCallback;
+};
+
+/**
+    Constructor for the class object.
+
+    @param canAvailable pointer to function that indicates the availibility of a
+   new message on the CAN bus
+    @param canRead pointer to function that reads the message from CAN bus into
+   CANTT
+    @param canSend pointer to function that sends a message from CANTT out over
+   CAN bus
+*/
+CANTransport::CANTransport(uint8_t (*canAvailable)(),
+                           uint8_t (*canRead)(CANMessage &msg),
+                           uint8_t (*canSend)(const CANMessage &msg)) {
+    this->canAvailable = canAvailable;
+    this->canRead = canRead;
+    this->canSend = canSend;
+    this->canCallback = NULL;
+};
 
 /**
     Constructor for the class object.
 
     @param canAddr CAN bus address/priority
     @param timeout value to configure internal timeouts
-    @param canAvailable pointer to function that indicates the availibility of a
-   new message on the CAN bus
-    @param canRead pointer to function that reads the message from CAN bus into
-   CANTT
-    @param canSend pointer to function that sends a message from CANTT out over
-   CAN bus
+    @param CANTransport reference to a CANTransport instance
     @param callback pointer to callback function once a complete message has
    been received
 */
-CANTT::CANTT(uint32_t canAddr, uint32_t timeout, uint8_t (*canAvailable)(),
-             uint8_t (*canRead)(CANMessage &msg),
-             uint8_t (*canSend)(const CANMessage &msg),
-             void (*callback)(long unsigned int, uint8_t *, unsigned int)) {
-    this->initialize(canAddr, timeout, canAvailable, canRead, canSend,
-                     callback);
-}
+
+CANTT::CANTT(uint32_t canAddr, CANTransport &cantr,
+             void (*callback)(uint32_t, uint8_t *, uint16_t, 
+                              uint8_t *, uint16_t)) {
+    this->initialize(canAddr, CANTT_STATE_TIMEOUT, cantr, callback);
+};
+
+/**
+    Constructor for the class object.
+
+    @param canAddr CAN bus address/priority
+    @param timeout value to configure internal timeouts
+    @param CANTransport reference to a CANTransport instance
+    @param callback pointer to callback function once a complete message has
+   been received
+*/
+
+CANTT::CANTT(uint32_t canAddr, uint32_t timeout,
+             CANTransport &cantr,
+             void (*callback)(uint32_t, uint8_t *, uint16_t, 
+                              uint8_t *, uint16_t)) {
+    this->initialize(canAddr, timeout, cantr, callback);
+};
 
 /**
     Initialises the class object.
@@ -109,17 +139,11 @@ CANTT::CANTT(uint32_t canAddr, uint32_t timeout, uint8_t (*canAvailable)(),
    been received
 */
 void CANTT::initialize(uint32_t canAddr, uint32_t timeout,
-                       uint8_t (*canAvailable)(),
-                       uint8_t (*canRead)(CANMessage &msg),
-                       uint8_t (*canSend)(const CANMessage &msg),
-                       void (*callback)(long unsigned int, uint8_t *,
-                                        unsigned int)) {
-
-    // Function pointers
+                       CANTransport &cantr,
+                       void (*callback)(uint32_t, uint8_t *, uint16_t, 
+                                        uint8_t *, uint16_t)) {
+    this->cantr = &cantr;
     this->callback = callback;
-    this->canAvailable = canAvailable;
-    this->canRead = canRead;
-    this->canSend = canSend;
 
     // Device CAN address/priority
     this->canAddr = canAddr;
@@ -258,11 +282,19 @@ void CANTT::parseSingle() {
     uint8_t frameSize = this->rx.can.data[0] & CANTT_SINGLE_SIZE_MASK;
 
     // Ensure that the frame has the correct size
-    if (frameSize == this->rx.can.len - 1 && frameSize > 0 && frameSize < 8 &&
-        this->callback != NULL) {
+    if (frameSize == this->rx.can.len - 1 && frameSize > 0 && frameSize < 8) {
+
+        if(this->cantr->canCallback != NULL) {
+            // Use the data directly from the can buffer, no need to use the message
+            // buffer
+            this->cantr->canCallback(this->rx.can.id, &this->rx.can.data[1], frameSize);    
+        }
+
+        this->decode(this->rx.can.id, &this->rx.can.data[1], frameSize);
+        
         // Use the data directly from the can buffer, no need to use the message
         // buffer
-        this->callback(this->rx.can.id, &this->rx.can.data[1], frameSize);
+        
 
         this->clearRX();
     }
@@ -308,7 +340,11 @@ int CANTT::parseConsecutive() {
                this->rx.size - this->rx.message_pos);
         this->rx.message_pos = this->rx.size;
 
-        this->callback(this->rx.address, this->rx.message, this->rx.size);
+        if(this->cantr->canCallback != NULL) {
+            this->cantr->canCallback(this->rx.address, this->rx.message, this->rx.size);
+        }
+        
+        this->decode(this->rx.address, this->rx.message, this->rx.size);
 
         this->clearRX();
     }
@@ -405,11 +441,11 @@ int CANTT::recvMessage() {
     this->rx.can.rtr = false;
     memset(this->rx.can.data, 0, CANTT_CAN_DATASIZE);
 
-    if (this->canRead == NULL) {
+    if (this->cantr->canRead == NULL) {
         return 1;
     }
 
-    if (this->canRead(this->rx.can) != 0) {
+    if (this->cantr->canRead(this->rx.can) != 0) {
         return 1;
     }
 
@@ -424,13 +460,13 @@ int CANTT::recvMessage() {
     @return error code
 */
 int CANTT::sendMessage() {
-    if (this->canSend == NULL) {
+    if (this->cantr->canSend == NULL) {
         return 1;
     }
 
     this->tx.can.id = this->tx.address;
 
-    if (this->canSend(this->tx.can) != 0) {
+    if (this->cantr->canSend(this->tx.can) != 0) {
         return 1;
     }
 
@@ -551,6 +587,55 @@ int CANTT::send(uint32_t addr, uint8_t *payload, uint16_t length) {
 }
 
 /**
+    Decodes a message and calls the internal callback
+
+    @param addr address/priority
+    @param data the data we received
+    @param length the length of the data
+    @return error code
+*/
+int CANTT::decode(uint32_t addr, uint8_t *data, uint16_t len) {
+    uint8_t topic[CANTT_MAX_TOPIC_SIZE];
+    uint8_t payload[CANTT_MAX_PAYLOAD_SIZE];
+    uint16_t topic_len = 0;
+    uint16_t payload_len = 0;
+    uint8_t *dptr = data;
+
+    if(len == 0) {
+        return -1;
+    }
+
+    switch(data[0]) {
+    case 0x03: // Publish
+        dptr++;
+
+        topic_len = dptr[0] | dptr[1] << 8;
+        if (topic_len > (len - 5) || topic_len > CANTT_MAX_TOPIC_SIZE) {
+            return -1;
+        }
+        dptr += 2;
+        memcpy(topic, dptr, topic_len);
+        topic[topic_len] = '\0';
+        dptr += topic_len;
+
+        payload_len = dptr[0] | dptr[1] << 8;
+        if (payload_len + topic_len > (len - 5) || payload_len > CANTT_MAX_PAYLOAD_SIZE) {
+            return -1;
+        }
+        dptr += 2;
+        memcpy(payload, dptr, payload_len);
+        payload[payload_len] = '\0';
+
+        if(this->callback != NULL) {
+            this->callback(addr, topic, topic_len, payload, payload_len);
+        }
+        break;
+    }
+
+    return 0;
+}
+
+/**
     Loop to run the internal state machine
 */
 void CANTT::loop() {
@@ -567,7 +652,7 @@ void CANTT::loop() {
     switch (stateMachine) {
     case IDLE: // FIXME: not the correct name for this state
     case CHECKREAD:
-        if (this->canAvailable()) {
+        if (this->cantr->canAvailable()) {
             this->changeState(READ);
 
         } else if (this->inReception() == false) { // We can only send if we are

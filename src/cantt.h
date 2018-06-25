@@ -13,6 +13,9 @@
 #define CANTT_MAX_MESSAGE_SIZE CANTT_MAX_RECV_BUFFER
 
 #define CANTT_MAX_DATASIZE 4095
+#define CANTT_MAX_TOPIC_SIZE 64
+#define CANTT_MAX_PAYLOAD_SIZE 64
+
 #define CANTT_CAN_DATASIZE 8
 
 #define CANTT_MAX_ADDR 0x7FF
@@ -77,17 +80,26 @@ enum state_m {
     CHECKSEND = 10
 };
 
+class CANTransport {
+  public:
+    CANTransport(uint8_t (*canAvailable)(),
+          uint8_t (*canRead)(CANMessage &msg),
+          uint8_t (*canSend)(const CANMessage &msg),
+          void (*canCallback)(uint32_t, uint8_t *, uint16_t));
+    CANTransport(uint8_t (*canAvailable)(),
+          uint8_t (*canRead)(CANMessage &msg),
+          uint8_t (*canSend)(const CANMessage &msg));
+
+    uint8_t (*canAvailable)();
+    uint8_t (*canRead)(CANMessage &msg);
+    uint8_t (*canSend)(const CANMessage &msg);
+    void (*canCallback)(uint32_t, uint8_t *, unsigned int);
+};
+
 class CANTT {
   public:
-    CANTT(uint32_t canAddr, uint8_t (*canAvailable)(),
-          uint8_t (*canRead)(CANMessage &msg),
-          uint8_t (*canSend)(const CANMessage &msg),
-          void (*callback)(long unsigned int, uint8_t *, unsigned int));
-
-    CANTT(uint32_t canAddr, uint32_t timeout, uint8_t (*canAvailable)(),
-          uint8_t (*canRead)(CANMessage &msg),
-          uint8_t (*canSend)(const CANMessage &msg),
-          void (*callback)(long unsigned int, uint8_t *, unsigned int));
+    CANTT(uint32_t canAddr, CANTransport &cantr, void (*callback)(uint32_t, uint8_t *, uint16_t, uint8_t *, uint16_t));
+    CANTT(uint32_t canAddr, uint32_t timeout, CANTransport &cantr, void (*callback)(uint32_t, uint8_t *, uint16_t, uint8_t *, uint16_t));
 
     void begin();
     void loop();
@@ -108,10 +120,10 @@ class CANTT {
     enum state_m stateMachine;
 
     void
-    initialize(uint32_t canAddr, uint32_t timeout, uint8_t (*canAvailable)(),
-               uint8_t (*canRead)(CANMessage &msg),
-               uint8_t (*canSend)(const CANMessage &msg),
-               void (*callback)(long unsigned int, uint8_t *, unsigned int));
+    initialize(uint32_t canAddr, uint32_t timeout,
+               CANTransport &cantr,
+               void (*callback)(uint32_t, uint8_t *, uint16_t, 
+                                uint8_t *, uint16_t));
 
     void parseSingle();
     void parseFirst();
@@ -130,6 +142,8 @@ class CANTT {
     void clearRX();
     void clearTX();
     void rewindTX();
+
+    int decode(uint32_t addr, uint8_t *data, uint16_t len);
 
     void changeState(enum state_m s);
 
@@ -156,10 +170,8 @@ class CANTT {
     uint32_t timeOutTimer;
     uint32_t timeout;
 
-    uint8_t (*canAvailable)();
-    uint8_t (*canRead)(CANMessage &msg);
-    uint8_t (*canSend)(const CANMessage &msg);
-    void (*callback)(long unsigned int, uint8_t *, unsigned int);
+    CANTransport *cantr;
+    void (*callback)(uint32_t, uint8_t *, uint16_t, uint8_t *, uint16_t);
 };
 
 #endif // cantt.h
