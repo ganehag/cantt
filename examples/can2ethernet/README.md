@@ -3,7 +3,7 @@
 
 ## Required hardware
 - Arduino UNO or compatible (I use an Olimex 328)
-- MCP2515
+- CAN Shield with an MCP2515 
 - Ethernet Shield
 
 
